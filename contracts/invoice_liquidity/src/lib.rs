@@ -899,9 +899,15 @@ impl InvoiceLiquidityContract {
         rate.max(50)
     }
 
-    // ----------------------------------------------------------------
-    // get_invoice — read-only helper for frontends and tests
-    // ----------------------------------------------------------------
+    /// Returns the invoice with the given `invoice_id`.
+    ///
+    /// This is a read-only view method that returns the full `Invoice`
+    /// struct, including submitter, payer, LP, token, amount, discount rate,
+    /// due date, status, and funding state.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ContractError::InvoiceNotFound` if the invoice does not exist.
     pub fn get_invoice(env: Env, invoice_id: u64) -> Result<Invoice, ContractError> {
         if !invoice_exists(&env, invoice_id) {
             return Err(ContractError::InvoiceNotFound);
