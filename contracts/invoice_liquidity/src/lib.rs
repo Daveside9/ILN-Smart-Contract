@@ -3,15 +3,16 @@
 pub mod errors;
 pub mod events;
 pub mod invoice;
+pub mod storage;
 pub mod config;
 pub mod rate_logic;
 mod tests_regression;
 mod tests_new_features;
 
 pub use errors::ContractError;
-pub use invoice::{Invoice, InvoiceParams, InvoiceStatus, ReputationScore};
-pub use config::{Config, ConfigError, set_config, get_config};
-
+pub use crate::invoice::{Invoice, InvoiceParams, InvoiceStatus, ReputationScore, AppealRecord, LpFundRequest};
+pub use crate::storage::DataKey;
+pub use config::{Config, ConfigError};
 use soroban_sdk::{
     contract, contractimpl, token::Client as TokenClient, vec, Address, BytesN, Env, IntoVal,
     Symbol, Vec,
@@ -22,14 +23,12 @@ use events::{
     InvoiceCancelled, InvoiceDefaulted, InvoiceFunded, InvoicePaid, InvoiceSubmitted,
     InvoiceTransferred, InvoiceUpdated,
 };
-use invoice::{
+use crate::storage::{
     get_appeal, get_fund_queue, get_invoice_funders, get_lp_score, get_payer_score,
     get_pre_default_payer_score, get_queue_resolution, invoice_exists, load_invoice,
     next_invoice_id, save_appeal, save_fund_queue, save_invoice, save_invoice_funders,
     save_pre_default_payer_score, save_queue_resolution, set_lp_score, set_payer_score,
-    AppealRecord, LpFundRequest, StorageKey,
 };
-
 // 30-day window in seconds for a payer to file an appeal after a default.
 const APPEAL_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -61,25 +60,25 @@ impl InvoiceLiquidityContract {
         token: Address,
         xlm_token: Address,
     ) -> Result<(), ContractError> {
-        if env.storage().instance().has(&StorageKey::InvoiceCount) {
+        if env.storage().instance().has(&crate::storage::DataKey::InvoiceCount) {
             return Err(ContractError::AlreadyInitialized);
         }
 
-        env.storage().instance().set(&StorageKey::Admin, &admin);
-        env.storage().instance().set(&StorageKey::FeeRate, &0_u32);
+        env.storage().instance().set(&crate::storage::DataKey::Admin, &admin);
+        env.storage().instance().set(&crate::storage::DataKey::FeeRate, &0_u32);
         env.storage()
             .instance()
-            .set(&StorageKey::MaxDiscountRate, &5000_u32);
+            .set(&crate::storage::DataKey::MaxDiscountRate, &5000_u32);
 
         // approve first token (USDC or default)
         env.storage()
             .persistent()
-            .set(&StorageKey::ApprovedToken(token.clone()), &true);
+            .set(&crate::storage::DataKey::ApprovedToken(token.clone()), &true);
 
         // approve native XLM SAC
         env.storage()
             .persistent()
-            .set(&StorageKey::ApprovedToken(xlm_token.clone()), &true);
+            .set(&crate::storage::DataKey::ApprovedToken(xlm_token.clone()), &true);
 
         let mut list: Vec<Address> = Vec::new(&env);
         list.push_back(token.clone());
@@ -87,16 +86,16 @@ impl InvoiceLiquidityContract {
 
         env.storage()
             .persistent()
-            .set(&StorageKey::TokenList, &list);
+            .set(&crate::storage::DataKey::TokenList, &list);
 
         Ok(())
     }
 
     // ------------------------------------------------------------
     pub fn set_admin(env: Env, new_admin: Address) {
-        let old_admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let old_admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         old_admin.require_auth();
-        env.storage().instance().set(&StorageKey::Admin, &new_admin);
+        env.storage().instance().set(&crate::storage::DataKey::Admin, &new_admin);
         env.events().publish_event(&AdminChanged {
             old_admin,
             new_admin,
@@ -105,60 +104,60 @@ impl InvoiceLiquidityContract {
     }
 
     pub fn update_fee_rate(env: Env, rate: u32) {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
-        env.storage().instance().set(&StorageKey::FeeRate, &rate);
+        env.storage().instance().set(&crate::storage::DataKey::FeeRate, &rate);
     }
 
     pub fn update_max_discount(env: Env, rate: u32) {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage()
             .instance()
-            .set(&StorageKey::MaxDiscountRate, &rate);
+            .set(&crate::storage::DataKey::MaxDiscountRate, &rate);
     }
 
     pub fn set_distribution_contract(env: Env, distribution_contract: Address) {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage()
             .instance()
-            .set(&StorageKey::DistributionContract, &distribution_contract);
+            .set(&crate::storage::DataKey::DistributionContract, &distribution_contract);
     }
 
     pub fn add_token(env: Env, token: Address) {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage()
             .persistent()
-            .set(&StorageKey::ApprovedToken(token.clone()), &true);
+            .set(&crate::storage::DataKey::ApprovedToken(token.clone()), &true);
 
         let mut list: Vec<Address> = env
             .storage()
             .persistent()
-            .get(&StorageKey::TokenList)
+            .get(&crate::storage::DataKey::TokenList)
             .unwrap_or(Vec::new(&env));
         if !list.contains(&token) {
             list.push_back(token);
             env.storage()
                 .persistent()
-                .set(&StorageKey::TokenList, &list);
+                .set(&crate::storage::DataKey::TokenList, &list);
         }
     }
 
     pub fn remove_token(env: Env, token: Address) {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage()
             .persistent()
-            .set(&StorageKey::ApprovedToken(token.clone()), &false);
+            .set(&crate::storage::DataKey::ApprovedToken(token.clone()), &false);
     }
 
     // ------------------------------------------------------------
     // pause / unpause (emergency controls)
     // ------------------------------------------------------------
     pub fn pause(env: Env) -> Result<(), ContractError> {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         set_paused(&env, true);
         env.events().publish_event(&ContractPaused {
@@ -168,7 +167,7 @@ impl InvoiceLiquidityContract {
     }
 
     pub fn unpause(env: Env) -> Result<(), ContractError> {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
         set_paused(&env, false);
         env.events().publish_event(&ContractUnpaused {
@@ -603,7 +602,7 @@ impl InvoiceLiquidityContract {
         let token_list: Vec<Address> = env
             .storage()
             .persistent()
-            .get(&StorageKey::TokenList)
+            .get(&crate::storage::DataKey::TokenList)
             .unwrap_or(Vec::new(&env));
         
         // Get token addresses from list, or use dummy addresses if not available
@@ -835,7 +834,7 @@ impl InvoiceLiquidityContract {
         let fee_rate: u32 = env
             .storage()
             .instance()
-            .get(&StorageKey::FeeRate)
+            .get(&crate::storage::DataKey::FeeRate)
             .unwrap_or(0);
         let protocol_fee = invoice
             .amount
@@ -844,7 +843,7 @@ impl InvoiceLiquidityContract {
             / 10_000;
 
         if protocol_fee > 0 {
-            let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+            let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
             token.transfer(&contract_address, &admin, &protocol_fee);
         }
 
@@ -1127,7 +1126,7 @@ impl InvoiceLiquidityContract {
         invoice_id: u64,
         upheld: bool,
     ) -> Result<(), ContractError> {
-        let admin: Address = env.storage().instance().get(&StorageKey::Admin).unwrap();
+        let admin: Address = env.storage().instance().get(&crate::storage::DataKey::Admin).unwrap();
         admin.require_auth();
 
         if !invoice_exists(&env, invoice_id) {
@@ -1213,7 +1212,7 @@ impl InvoiceLiquidityContract {
     pub fn get_invoice_count(env: Env) -> u64 {
         env.storage()
             .persistent()
-            .get(&StorageKey::InvoiceCount)
+            .get(&crate::storage::DataKey::InvoiceCount)
             .unwrap_or(0)
     }
 }
@@ -1243,7 +1242,7 @@ fn validate_invoice_terms(
     let max_rate: u32 = env
         .storage()
         .instance()
-        .get(&StorageKey::MaxDiscountRate)
+        .get(&crate::storage::DataKey::MaxDiscountRate)
         .unwrap_or(5000);
     if discount_rate == 0 || discount_rate > max_rate {
         return Err(ContractError::InvalidDiscountRate);
@@ -1267,7 +1266,7 @@ fn validate_invoice_terms(
 fn is_approved_token(env: &Env, token: &Address) -> bool {
     env.storage()
         .persistent()
-        .get(&StorageKey::ApprovedToken(token.clone()))
+        .get(&crate::storage::DataKey::ApprovedToken(token.clone()))
         .unwrap_or(false)
 }
 
@@ -1275,7 +1274,7 @@ fn notify_distribution_funding(env: &Env, lp: &Address, amount_usdc_equivalent: 
     let Some(dist_contract) = env
         .storage()
         .instance()
-        .get::<_, Address>(&StorageKey::DistributionContract)
+        .get::<_, Address>(&crate::storage::DataKey::DistributionContract)
     else {
         return;
     };
@@ -1297,7 +1296,7 @@ fn notify_distribution_settlement(
     let Some(dist_contract) = env
         .storage()
         .instance()
-        .get::<_, Address>(&StorageKey::DistributionContract)
+        .get::<_, Address>(&crate::storage::DataKey::DistributionContract)
     else {
         return;
     };
@@ -1329,6 +1328,7 @@ mod tests_state_machine;
 mod tests_storage;
 #[cfg(test)]
 mod tests_invoice_paid_event;
-mod tests_reputation_edge_cases;
 #[cfg(test)]
 mod tests_lp_funding_details_event;
+#[cfg(test)]
+mod tests_access_control;
