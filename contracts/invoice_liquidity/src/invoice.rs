@@ -151,16 +151,73 @@ pub enum StorageKey {
     TotalPaid,           // Total invoices paid
     TotalVolumeUsdc,     // Total volume in USDC
     TotalVolumeEurc,     // Total volume in EURC
-    TotalVolumeXlm,      // Total volume in XLM
+    TotalVolumeXlm,       // Total volume in XLM
+    // Submitter Index
+    SubmitterInvoices(Address), // Vec<u64> — Invoice IDs submitted by a specific address
+    // LP Index
+    LpInvoices(Address),        // Vec<u64> — Invoice IDs funded by a specific LP
     // Pause/unpause
     Paused,              // Boolean flag for contract pause state
-}
+    }
 
-// ----------------------------------------------------------------
-// Storage helpers — core invoice CRUD
-// ----------------------------------------------------------------
+    // ----------------------------------------------------------------
+    // Storage helpers — core invoice CRUD
+    // ----------------------------------------------------------------
 
-pub fn save_invoice(env: &Env, invoice: &Invoice) {
+    pub fn get_submitter_invoices(env: &Env, submitter: &Address) -> soroban_sdk::Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::SubmitterInvoices(submitter.clone()))
+        .unwrap_or(soroban_sdk::Vec::new(env))
+    }
+
+    pub fn add_invoice_to_submitter(env: &Env, submitter: &Address, invoice_id: u64) {
+    let mut invoices = get_submitter_invoices(env, submitter);
+    invoices.push_back(invoice_id);
+    let key = StorageKey::SubmitterInvoices(submitter.clone());
+    env.storage().persistent().set(&key, &invoices);
+    env.storage().persistent().extend_ttl(&key, 1_000_000, 2_000_000);
+    }
+
+    pub fn remove_invoice_from_submitter(env: &Env, submitter: &Address, invoice_id: u64) {
+    let invoices = get_submitter_invoices(env, submitter);
+    let mut new_invoices = soroban_sdk::Vec::new(env);
+    for id in invoices.iter() {
+        if id != invoice_id {
+            new_invoices.push_back(id);
+        }
+    }
+    let key = StorageKey::SubmitterInvoices(submitter.clone());
+    env.storage().persistent().set(&key, &new_invoices);
+    env.storage().persistent().extend_ttl(&key, 1_000_000, 2_000_000);
+    }
+
+    pub fn get_lp_invoices(env: &Env, lp: &Address) -> soroban_sdk::Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&StorageKey::LpInvoices(lp.clone()))
+        .unwrap_or(soroban_sdk::Vec::new(env))
+    }
+
+    pub fn add_invoice_to_lp(env: &Env, lp: &Address, invoice_id: u64) {
+    let mut invoices = get_lp_invoices(env, lp);
+    // Check if already present to avoid duplicates in case of partial funding
+    let mut exists = false;
+    for id in invoices.iter() {
+        if id == invoice_id {
+            exists = true;
+            break;
+        }
+    }
+    if !exists {
+        invoices.push_back(invoice_id);
+        let key = StorageKey::LpInvoices(lp.clone());
+        env.storage().persistent().set(&key, &invoices);
+        env.storage().persistent().extend_ttl(&key, 1_000_000, 2_000_000);
+    }
+    }
+
+    pub fn save_invoice(env: &Env, invoice: &Invoice) {
     let key = StorageKey::Invoice(invoice.id);
     env.storage().persistent().set(&key, invoice);
     env.storage()

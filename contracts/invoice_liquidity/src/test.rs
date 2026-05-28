@@ -12,13 +12,13 @@ use soroban_sdk::{
 // ----------------------------------------------------------------
 
 /// All the actors and contract references a test needs
-struct TestEnv {
-    env: Env,
-    contract: InvoiceLiquidityContractClient<'static>,
-    token: TokenClient<'static>,
-    freelancer: Address,
-    payer: Address,
-    funder: Address,
+pub struct TestEnv {
+    pub env: Env,
+    pub contract: InvoiceLiquidityContractClient<'static>,
+    pub token: TokenClient<'static>,
+    pub freelancer: Address,
+    pub payer: Address,
+    pub funder: Address,
 }
 
 /// Standard invoice values reused across tests
@@ -26,7 +26,7 @@ const INVOICE_AMOUNT: i128 = 1_000_000_000; // 100 USDC in stroops (1 USDC = 10_
 const DISCOUNT_RATE: u32 = 300; // 3.00% in basis points
 const DUE_DATE_OFFSET: u64 = 60 * 60 * 24 * 30; // 30 days from now
 
-fn setup() -> TestEnv {
+pub fn setup() -> TestEnv {
     let env = Env::default();
 
     // Skip auth checks in tests — we test auth separately

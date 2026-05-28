@@ -10,6 +10,8 @@ pub mod access;
 use access::*;
 mod tests_regression;
 mod tests_new_features;
+mod tests_pagination;
+mod tests_lp_pagination;
 
 pub use errors::ContractError;
 pub use crate::invoice::{Invoice, InvoiceParams, InvoiceStatus, ReputationScore, AppealRecord, LpFundRequest};
@@ -26,10 +28,12 @@ use events::{
     InvoiceTransferred, InvoiceUpdated,
 };
 use invoice::{
-    add_volume, get_appeal, get_contract_stats, get_dispute, get_fund_queue, get_invoice_funders, get_lp_score,
-    get_payer_score, get_pre_default_payer_score, get_queue_resolution, increment_total_funded,
-    increment_total_invoices, increment_total_paid, invoice_exists, is_paused, load_invoice,
-    next_invoice_id, save_appeal, save_dispute, save_fund_queue, save_invoice, save_invoice_funders,
+    add_invoice_to_lp, add_invoice_to_submitter, add_volume, get_appeal, get_contract_stats,
+    get_dispute, get_fund_queue, get_invoice_funders, get_lp_invoices, get_lp_score, get_payer_score,
+    get_pre_default_payer_score, get_queue_resolution, get_submitter_invoices,
+    increment_total_funded, increment_total_invoices, increment_total_paid, invoice_exists,
+    is_paused, load_invoice, next_invoice_id, remove_invoice_from_submitter, save_appeal,
+    save_dispute, save_fund_queue, save_invoice, save_invoice_funders,
     save_pre_default_payer_score, save_queue_resolution, set_lp_score, set_paused, set_payer_score,
     ContractStats, DisputeRecord, StorageKey,
 };
@@ -204,6 +208,68 @@ impl InvoiceLiquidityContract {
     }
 
     // ------------------------------------------------------------
+    // list_invoices_by_submitter (Paginated)
+    // ------------------------------------------------------------
+    /// Access: Anyone
+    pub fn list_invoices_by_submitter(
+        env: Env,
+        submitter: Address,
+        page: u32,
+        page_size: u32,
+    ) -> Vec<Invoice> {
+        let page_size = page_size.min(50);
+        let invoice_ids = get_submitter_invoices(&env, &submitter);
+        let total_invoices = invoice_ids.len();
+
+        let start = page * page_size;
+        if start >= total_invoices {
+            return Vec::new(&env);
+        }
+
+        let end = (start + page_size).min(total_invoices);
+        let mut result = Vec::new(&env);
+
+        for i in start..end {
+            if let Some(id) = invoice_ids.get(i) {
+                result.push_back(load_invoice(&env, id));
+            }
+        }
+
+        result
+    }
+
+    // ------------------------------------------------------------
+    // list_invoices_by_lp (Paginated)
+    // ------------------------------------------------------------
+    /// Access: Anyone
+    pub fn list_invoices_by_lp(
+        env: Env,
+        lp: Address,
+        page: u32,
+        page_size: u32,
+    ) -> Vec<Invoice> {
+        let page_size = page_size.min(50);
+        let invoice_ids = get_lp_invoices(&env, &lp);
+        let total_invoices = invoice_ids.len();
+
+        let start = page * page_size;
+        if start >= total_invoices {
+            return Vec::new(&env);
+        }
+
+        let end = (start + page_size).min(total_invoices);
+        let mut result = Vec::new(&env);
+
+        for i in start..end {
+            if let Some(id) = invoice_ids.get(i) {
+                result.push_back(load_invoice(&env, id));
+            }
+        }
+
+        result
+    }
+
+    // ------------------------------------------------------------
     // submit_invoice (NOW TOKEN-AWARE)
     // ------------------------------------------------------------
     /// Access: Submitter only
@@ -237,7 +303,7 @@ impl InvoiceLiquidityContract {
 
         let invoice = Invoice {
             id,
-            freelancer,
+            freelancer: freelancer.clone(),
             payer,
             token,
             amount,
@@ -251,6 +317,9 @@ impl InvoiceLiquidityContract {
         };
 
         save_invoice(&env, &invoice);
+
+        // Update submitter index
+        add_invoice_to_submitter(&env, &freelancer, id);
 
         // Increment total invoices counter
         increment_total_invoices(&env);
@@ -369,7 +438,7 @@ impl InvoiceLiquidityContract {
 
             let invoice = Invoice {
                 id,
-                freelancer: params.freelancer,
+                freelancer: params.freelancer.clone(),
                 payer: params.payer,
                 token: params.token,
                 amount: params.amount,
@@ -383,6 +452,9 @@ impl InvoiceLiquidityContract {
             };
 
             save_invoice(&env, &invoice);
+
+            // Update submitter index
+            add_invoice_to_submitter(&env, &params.freelancer, id);
 
             // Increment total invoices counter
             increment_total_invoices(&env);
@@ -620,6 +692,9 @@ impl InvoiceLiquidityContract {
 
         save_invoice(&env, &invoice);
 
+        // Update LP index
+        add_invoice_to_lp(&env, &funder, invoice_id);
+
         // Increment total funded counter if fully funded
         if invoice.status == InvoiceStatus::Funded {
             increment_total_funded(&env);
@@ -725,6 +800,10 @@ impl InvoiceLiquidityContract {
         invoice.freelancer = new_freelancer.clone();
 
         save_invoice(&env, &invoice);
+
+        // Update submitter index
+        remove_invoice_from_submitter(&env, &old_freelancer, invoice_id);
+        add_invoice_to_submitter(&env, &new_freelancer, invoice_id);
 
         env.events().publish_event(&InvoiceTransferred {
             invoice_id,

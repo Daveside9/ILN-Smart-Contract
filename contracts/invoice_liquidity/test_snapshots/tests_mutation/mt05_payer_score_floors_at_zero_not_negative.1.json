@@ -3634,6 +3634,64 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "LpInvoices"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "vec": [
+                  {
+                    "u64": "1"
+                  },
+                  {
+                    "u64": "2"
+                  },
+                  {
+                    "u64": "3"
+                  },
+                  {
+                    "u64": "4"
+                  },
+                  {
+                    "u64": "5"
+                  },
+                  {
+                    "u64": "6"
+                  },
+                  {
+                    "u64": "7"
+                  },
+                  {
+                    "u64": "8"
+                  },
+                  {
+                    "u64": "9"
+                  },
+                  {
+                    "u64": "10"
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 2000000
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "LpScore"
                   },
                   {
@@ -3964,6 +4022,64 @@
           "ext": "v0"
         },
         "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SubmitterInvoices"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "vec": [
+                  {
+                    "u64": "1"
+                  },
+                  {
+                    "u64": "2"
+                  },
+                  {
+                    "u64": "3"
+                  },
+                  {
+                    "u64": "4"
+                  },
+                  {
+                    "u64": "5"
+                  },
+                  {
+                    "u64": "6"
+                  },
+                  {
+                    "u64": "7"
+                  },
+                  {
+                    "u64": "8"
+                  },
+                  {
+                    "u64": "9"
+                  },
+                  {
+                    "u64": "10"
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 2000000
       },
       {
         "entry": {
