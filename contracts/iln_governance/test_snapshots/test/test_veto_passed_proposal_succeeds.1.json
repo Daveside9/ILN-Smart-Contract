@@ -182,6 +182,29 @@
     [],
     [
       [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "function_name": "veto_proposal",
+              "args": [
+                {
+                  "u64": "1"
+                },
+                {
+                  "bytes": "dededededededededededededededededededededededededededededededede"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [
+      [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
         {
           "function": {
@@ -419,7 +442,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "6277191135259896685"
+                  "nonce": "5806905060045992000"
                 }
               },
               "durability": "temporary",
@@ -439,7 +462,27 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "5806905060045992000"
+                  "nonce": "1194852393571756375"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "6277191135259896685"
                 }
               },
               "durability": "temporary",
@@ -586,6 +629,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "eta_ledger"
+                    },
+                    "val": {
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "id"
                     },
                     "val": {
@@ -615,7 +666,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Executed"
+                          "symbol": "Vetoed"
                         }
                       ]
                     }
@@ -701,6 +752,14 @@
                     },
                     "val": {
                       "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "eta_ledger"
+                    },
+                    "val": {
+                      "u32": 0
                     }
                   },
                   {

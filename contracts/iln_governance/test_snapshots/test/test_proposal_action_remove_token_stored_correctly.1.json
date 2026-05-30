@@ -337,6 +337,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "eta_ledger"
+                    },
+                    "val": {
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "id"
                     },
                     "val": {

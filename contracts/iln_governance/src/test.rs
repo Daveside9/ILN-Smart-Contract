@@ -12,12 +12,8 @@ use soroban_sdk::{
     Address, BytesN, Env,
 };
 
-// ── Test helpers ──────────────────────────────────────────────────────────────
-
-// Deploy a minimal ILN contract stub for execute_proposal cross-contract calls.
-// This allows tests to assert successful execution paths.
 #[contract]
-struct MockIln;
+pub struct MockIln;
 
 #[contractimpl]
 impl MockIln {
@@ -26,6 +22,8 @@ impl MockIln {
     pub fn remove_token(_env: Env, _token: Address) {}
     pub fn update_max_discount(_env: Env, _rate: u32) {}
 }
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
 
 struct GovTestEnv {
     env: Env,
@@ -59,8 +57,7 @@ fn setup() -> GovTestEnv {
     gov_token_admin.mint(&voter_b, &2_000);
     gov_token_admin.mint(&proposer, &500);
 
-    let iln_id = env.register(MockIln, ());
-    let iln_contract = iln_id.clone();
+    let iln_contract = env.register(MockIln, ());
 
     let contract_id = env.register(GovContract, ());
     let contract = GovContractClient::new(&env, &contract_id);
@@ -420,6 +417,7 @@ fn test_execute_quorum_exact_threshold_is_allowed() {
 
     // total_supply = 10_000; quorum = 1_000; total_votes = 1_000 => meets quorum.
     let res = t.env.as_contract(&t.contract.address, || {
+        GovContract::execute_proposal(t.env.clone(), id, 10_000)?;
         GovContract::execute_proposal(t.env.clone(), id, 10_000)
     });
     assert!(res.is_ok());
@@ -467,6 +465,7 @@ fn test_execute_quorum_met_passes_with_custom_quorum_bps() {
     t.env.ledger().set(ledger);
 
     let res = t.env.as_contract(&t.contract.address, || {
+        GovContract::execute_proposal(t.env.clone(), id, 10_000)?;
         GovContract::execute_proposal(t.env.clone(), id, 10_000)
     });
     assert!(res.is_ok());
@@ -497,8 +496,12 @@ fn test_already_resolved_proposal_cannot_be_executed_again() {
     let mut ledger = t.env.ledger().get();
     ledger.timestamp += 259_201;
     t.env.ledger().set(ledger);
-    t.contract.execute_proposal(&id, &100_000);
-    t.contract.execute_proposal(&id, &100_000);
+    // Call 1: Active -> Passed
+    t.contract.execute_proposal(&id, &10_000);
+    // Call 2: Passed -> Executed
+    t.contract.execute_proposal(&id, &10_000);
+    // Call 3: Already Executed -> should panic with AlreadyResolved
+    t.contract.execute_proposal(&id, &10_000);
 }
 
 // ── Issue #64: delegate_votes / undelegate_votes ──────────────────────────────
@@ -646,6 +649,73 @@ fn test_zero_balance_voter_with_delegation_can_vote() {
 }
 
 #[test]
+fn test_execute_timelock_delay_flow() {
+    let t = setup();
+
+    // Set a timelock delay of 100 ledgers
+    t.contract.set_execution_delay(&t.admin, &100);
+    assert_eq!(t.contract.get_execution_delay(), 100);
+
+    let id = create_fee_proposal(&t);
+    t.contract.cast_vote(&t.proposer, &id, &true);
+    t.contract.cast_vote(&t.voter_a, &id, &true);
+
+    let mut ledger = t.env.ledger().get();
+    let voting_end = t.contract.get_proposal(&id).voting_end;
+    ledger.timestamp = voting_end + 1;
+    t.env.ledger().set(ledger);
+
+    // Call execute_proposal to queue it (transition Active -> Passed)
+    // The proposal has passed and sets eta_ledger to current_ledger + 100
+    let initial_ledger = t.env.ledger().sequence();
+    t.contract.execute_proposal(&id, &10_000);
+
+    let p = t.contract.get_proposal(&id);
+    assert_eq!(p.status, ProposalStatus::Passed);
+    assert_eq!(p.eta_ledger, initial_ledger + 100);
+
+    // Attempting to execute immediately should fail with TimelockNotExpired
+    let res = t.contract.try_execute_proposal(&id, &10_000);
+    assert_eq!(res, Err(Ok(GovernanceError::TimelockNotExpired)));
+
+    // Progress ledger by 99 blocks (still before timelock)
+    let mut ledger = t.env.ledger().get();
+    ledger.sequence_number += 99;
+    t.env.ledger().set(ledger);
+
+    let res = t.contract.try_execute_proposal(&id, &10_000);
+    assert_eq!(res, Err(Ok(GovernanceError::TimelockNotExpired)));
+
+    // Progress to timelock expiration (sequence_number >= eta_ledger)
+    let mut ledger = t.env.ledger().get();
+    ledger.sequence_number += 1;
+    t.env.ledger().set(ledger);
+
+    // Now execution should succeed
+    let res = t.contract.try_execute_proposal(&id, &10_000);
+    assert!(res.is_ok());
+
+    let p_final = t.contract.get_proposal(&id);
+    assert_eq!(p_final.status, ProposalStatus::Executed);
+}
+
+#[test]
+#[should_panic]
+fn test_execute_failed_proposal_fails() {
+    let t = setup();
+    let id = create_fee_proposal(&t);
+
+    // No votes are cast. After voting ends, the proposal fails to meet quorum.
+    let mut ledger = t.env.ledger().get();
+    let voting_end = t.contract.get_proposal(&id).voting_end;
+    ledger.timestamp = voting_end + 1;
+    t.env.ledger().set(ledger);
+
+    // Execution should panic because quorum is not met (QuorumNotReached)
+    t.contract.execute_proposal(&id, &10_000);
+}
+
+#[test]
 fn test_incremental_vote_result_caching_and_delegation() {
     let t = setup();
 
@@ -709,18 +779,18 @@ fn test_veto_passed_proposal_succeeds() {
     ledger.timestamp += 259_201;
     t.env.ledger().set(ledger);
 
-    // Manually set the proposal to Passed via internal call (bypass execute cross-contract).
+    // Manually set the proposal to Passed via internal call.
     let res = t.env.as_contract(&t.contract.address, || {
         GovContract::execute_proposal(t.env.clone(), id, 10_000)
     });
-    // execute_proposal sets status to Executed on success, so we instead
-    // manipulate the status directly for testing the Passed branch.
-    // Instead, create a second fresh proposal and leave it at Active to
-    // keep the test focused; the Passed branch is validated by testing
-    // that NotVetoable fires for Executed proposals below.
     assert!(res.is_ok());
     let p = t.contract.get_proposal(&id);
-    assert_eq!(p.status, ProposalStatus::Executed);
+    assert_eq!(p.status, ProposalStatus::Passed);
+
+    // Veto the Passed proposal directly.
+    t.contract.veto_proposal(&id, &reason_hash(&t.env));
+    let p_after = t.contract.get_proposal(&id);
+    assert_eq!(p_after.status, ProposalStatus::Vetoed);
 
     // Now create a brand-new proposal and veto it while still Active.
     let id2 = create_fee_proposal(&t);
@@ -869,6 +939,7 @@ fn test_veto_executed_proposal_returns_not_vetoable() {
     t.env.ledger().set(ledger);
 
     let res = t.env.as_contract(&t.contract.address, || {
+        GovContract::execute_proposal(t.env.clone(), id, 10_000)?;
         GovContract::execute_proposal(t.env.clone(), id, 10_000)
     });
     assert!(res.is_ok());

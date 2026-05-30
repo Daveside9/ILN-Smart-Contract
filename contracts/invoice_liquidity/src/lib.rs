@@ -1915,7 +1915,7 @@ fn notify_distribution_settlement(
 // TEST MODULES
 // ----------------------------------------------------------------
 
-mod test;
+pub(crate) mod test;
 #[cfg(test)]
 mod tests_access_control;
 mod tests_appeal;
