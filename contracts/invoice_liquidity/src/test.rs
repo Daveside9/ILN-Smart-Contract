@@ -127,7 +127,7 @@ fn test_submit_invoice_stores_correct_fields() {
     assert_eq!(invoice.payer, t.payer);
     assert_eq!(invoice.token, t.token.address);
     assert_eq!(invoice.amount, INVOICE_AMOUNT);
-    assert_eq!(invoice.due_date, due_date);
+    assert_eq!(u64::from(invoice.due_date), due_date);
     assert_eq!(invoice.discount_rate, DISCOUNT_RATE);
     assert_eq!(invoice.status, InvoiceStatus::Pending);
     assert!(invoice.funder.is_none());
@@ -154,7 +154,7 @@ fn test_get_invoice_returns_existing_invoice() {
     assert_eq!(invoice.payer, t.payer);
     assert_eq!(invoice.token, t.token.address);
     assert_eq!(invoice.amount, INVOICE_AMOUNT);
-    assert_eq!(invoice.due_date, due_date);
+    assert_eq!(u64::from(invoice.due_date), due_date);
     assert_eq!(invoice.discount_rate, DISCOUNT_RATE);
     assert_eq!(invoice.status, InvoiceStatus::Pending);
     assert_eq!(invoice.amount_funded, 0);
@@ -408,7 +408,7 @@ fn test_update_invoice_updates_pending_invoice_fields() {
 
     let invoice = t.contract.get_invoice(&id);
     assert_eq!(invoice.amount, updated_amount);
-    assert_eq!(invoice.due_date, updated_due_date);
+    assert_eq!(u64::from(invoice.due_date), updated_due_date);
     assert_eq!(invoice.discount_rate, updated_discount_rate);
     assert_eq!(invoice.payer, t.payer);
     assert_eq!(invoice.status, InvoiceStatus::Pending);
@@ -625,7 +625,7 @@ fn test_fund_invoice_sets_funded_at_timestamp() {
     t.contract.fund_invoice(&t.funder, &id, &INVOICE_AMOUNT);
 
     let invoice = t.contract.get_invoice(&id);
-    assert_eq!(invoice.funded_at, Some(now));
+    assert_eq!(invoice.funded_at, Some(now.try_into().expect("timestamp")));
 }
 
 // ----------------------------------------------------------------
@@ -976,6 +976,7 @@ fn test_reputation_decay_inactive_score() {
         decay_rate_bps: 100, // 1% per period
         decay_period_ledgers: 1000,
         dispute_timeout_ledgers: 100,
+        xlm_sac_address: crate::storage::get_config(&t.env).unwrap().xlm_sac_address,
         price_oracle: None,
     };
     t.env.as_contract(&t.contract.address, || {
@@ -1013,6 +1014,7 @@ fn test_reputation_no_decay_when_inactive() {
         decay_rate_bps: 100,
         decay_period_ledgers: 10_000_000, // Very long period
         dispute_timeout_ledgers: 100,
+        xlm_sac_address: crate::storage::get_config(&t.env).unwrap().xlm_sac_address,
         price_oracle: None,
     };
     t.env.as_contract(&t.contract.address, || {
@@ -1047,6 +1049,7 @@ fn test_reputation_decay_activity_resets() {
         decay_rate_bps: 100,
         decay_period_ledgers: 1000,
         dispute_timeout_ledgers: 100,
+        xlm_sac_address: crate::storage::get_config(&t.env).unwrap().xlm_sac_address,
         price_oracle: None,
     };
 
@@ -1091,6 +1094,7 @@ fn test_reputation_score_never_goes_below_zero() {
         decay_rate_bps: 5000, // Very aggressive decay: 50% per period
         decay_period_ledgers: 100,
         dispute_timeout_ledgers: 100,
+        xlm_sac_address: crate::storage::get_config(&t.env).unwrap().xlm_sac_address,
         price_oracle: None,
     };
     t.env.as_contract(&t.contract.address, || {
@@ -1139,22 +1143,9 @@ fn test_upgrade_emits_correct_event() {
     assert!(result.is_ok(), "Admin should be able to call upgrade");
 
     // Check that ContractUpgraded event was emitted
-    let events = t.env.events().all();
-    let upgrade_events: Vec<_> = events
-        .iter()
-        .filter(|event| {
-            event.topics.get(0).map_or(false, |topic| {
-                // Check if topic matches "upgraded" (this is a simplified check)
-                topic.to_string().contains("upgraded") || event.topics.len() > 0
-                // Alternative: check by position
-            })
-        })
-        .collect();
-
-    // Event should be present (simplified validation)
-    // In production, you'd validate the exact event data
+    let events = t.env.events().all().filter_by_contract(&t.contract.address);
     assert!(
-        !upgrade_events.is_empty(),
+        events.events().len() > 0,
         "ContractUpgraded event should be emitted"
     );
 }

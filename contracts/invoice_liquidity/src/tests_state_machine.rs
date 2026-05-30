@@ -106,7 +106,7 @@ fn submit_invoice(t: &TestEnv) -> u64 {
 fn advance_past_due_date(t: &TestEnv, invoice_id: u64) {
     let invoice = t.contract.get_invoice(&invoice_id);
     let mut ledger_info = t.env.ledger().get();
-    ledger_info.timestamp = invoice.due_date + 1;
+    ledger_info.timestamp = u64::from(invoice.due_date) + 1;
     t.env.ledger().set(ledger_info);
 }
 

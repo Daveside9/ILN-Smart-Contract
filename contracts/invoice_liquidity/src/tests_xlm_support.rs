@@ -90,9 +90,9 @@ fn test_submit_invoice_with_xlm_token() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
-    let invoice = client.get_invoice(&invoice_id).unwrap();
+    let invoice = client.get_invoice(&invoice_id);
     assert_eq!(invoice.token, xlm_address);
     assert_eq!(invoice.amount, XLM_INVOICE_AMOUNT);
     assert_eq!(invoice.status, InvoiceStatus::Pending);
@@ -118,7 +118,7 @@ fn test_fund_invoice_with_xlm() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     // Mint XLM to funder
     let xlm_token = TokenClient::new(&env, &xlm_address);
@@ -128,9 +128,9 @@ fn test_fund_invoice_with_xlm() {
     // Fund invoice with XLM
     client
         .fund_invoice(&funder, &invoice_id, &XLM_INVOICE_AMOUNT)
-        .unwrap();
+;
 
-    let invoice = client.get_invoice(&invoice_id).unwrap();
+    let invoice = client.get_invoice(&invoice_id);
     assert_eq!(invoice.status, InvoiceStatus::Funded);
     assert_eq!(invoice.amount_funded, XLM_INVOICE_AMOUNT);
     assert_eq!(invoice.funder, Some(funder.clone()));
@@ -161,7 +161,7 @@ fn test_mark_paid_with_xlm() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     let xlm_token = TokenClient::new(&env, &xlm_address);
     let xlm_admin = StellarAssetClient::new(&env, &xlm_address);
@@ -169,15 +169,15 @@ fn test_mark_paid_with_xlm() {
 
     client
         .fund_invoice(&funder, &invoice_id, &XLM_INVOICE_AMOUNT)
-        .unwrap();
+;
 
     // Mint XLM to payer for payment
     xlm_admin.mint(&payer, &XLM_INVOICE_AMOUNT);
 
     // Mark invoice as paid
-    client.mark_paid(&invoice_id, &XLM_INVOICE_AMOUNT).unwrap();
+    client.mark_paid(&invoice_id, &XLM_INVOICE_AMOUNT);
 
-    let invoice = client.get_invoice(&invoice_id).unwrap();
+    let invoice = client.get_invoice(&invoice_id);
     assert_eq!(invoice.status, InvoiceStatus::Paid);
     assert_eq!(invoice.amount_paid, XLM_INVOICE_AMOUNT);
 
@@ -206,7 +206,7 @@ fn test_partial_funding_with_xlm() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     let xlm_token = TokenClient::new(&env, &xlm_address);
     let xlm_admin = StellarAssetClient::new(&env, &xlm_address);
@@ -215,9 +215,9 @@ fn test_partial_funding_with_xlm() {
     // Partially fund with XLM
     client
         .fund_invoice(&funder, &invoice_id, &XLM_FUND_AMOUNT)
-        .unwrap();
+;
 
-    let invoice = client.get_invoice(&invoice_id).unwrap();
+    let invoice = client.get_invoice(&invoice_id);
     assert_eq!(invoice.status, InvoiceStatus::PartiallyFunded);
     assert_eq!(invoice.amount_funded, XLM_FUND_AMOUNT);
 }
@@ -242,7 +242,7 @@ fn test_xlm_volume_tracking() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     let xlm_token = TokenClient::new(&env, &xlm_address);
     let xlm_admin = StellarAssetClient::new(&env, &xlm_address);
@@ -250,7 +250,7 @@ fn test_xlm_volume_tracking() {
 
     client
         .fund_invoice(&funder, &invoice_id, &XLM_INVOICE_AMOUNT)
-        .unwrap();
+;
 
     // Check that XLM volume is tracked
     let stats = client.get_contract_stats();
@@ -283,12 +283,12 @@ fn test_mixed_token_operations() {
             &discount_rate,
             &usdc_address,
         )
-        .unwrap();
+;
 
     usdc_admin.mint(&funder, &USDC_INVOICE_AMOUNT);
     client
         .fund_invoice(&funder, &usdc_invoice_id, &USDC_INVOICE_AMOUNT)
-        .unwrap();
+;
 
     // Submit XLM invoice
     let xlm_invoice_id = client
@@ -300,12 +300,12 @@ fn test_mixed_token_operations() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     xlm_admin.mint(&funder, &XLM_INVOICE_AMOUNT);
     client
         .fund_invoice(&funder, &xlm_invoice_id, &XLM_INVOICE_AMOUNT)
-        .unwrap();
+;
 
     // Verify both volumes are tracked correctly
     let stats = client.get_contract_stats();
@@ -333,7 +333,7 @@ fn test_xlm_precision_in_calculations() {
             &discount_rate,
             &xlm_address,
         )
-        .unwrap();
+;
 
     let xlm_token = TokenClient::new(&env, &xlm_address);
     let xlm_admin = StellarAssetClient::new(&env, &xlm_address);
@@ -342,9 +342,9 @@ fn test_xlm_precision_in_calculations() {
     // Fund and verify discount calculation is correct with 7 decimal precision
     client
         .fund_invoice(&funder, &invoice_id, &XLM_INVOICE_AMOUNT)
-        .unwrap();
+;
 
-    let invoice = client.get_invoice(&invoice_id).unwrap();
+    let invoice = client.get_invoice(&invoice_id);
 
     // Discount should be: 100,000,000 * 300 / 10,000 = 3,000,000 stroops (0.3 XLM)
     let expected_discount = XLM_INVOICE_AMOUNT * 300 / 10_000;
