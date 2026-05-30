@@ -1773,7 +1773,7 @@ impl InvoiceLiquidityContract {
 
     /// Access: Anyone
     pub fn get_invoice_count(env: Env) -> u64 {
-        get_contract_stats(&env).total_invoices
+        crate::invoice::read_next_invoice_id(&env) - 1
     }
 }
 

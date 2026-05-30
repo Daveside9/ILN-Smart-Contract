@@ -201,7 +201,7 @@ fn test_set_min_quorum_bps_rejects_zero() {
     t.contract.set_min_quorum_bps(&0);
 }
 
-// ── Issue #61: cast_vote ──────────────────────────────────────────────────────
+// ── Issue #61 ─────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_cast_vote_for_updates_votes_for() {
@@ -396,8 +396,6 @@ fn test_execute_quorum_not_reached_rejected() {
     let mut ledger = t.env.ledger().get();
     ledger.timestamp += 259_201;
     t.env.ledger().set(ledger);
-
-    // Total supply = 100_000; default quorum = 10_000; voter_a voted 1_000 — below quorum.
     t.contract.execute_proposal(&id, &100_000);
 }
 
@@ -715,6 +713,39 @@ fn test_execute_failed_proposal_fails() {
 
     // Execution should panic because quorum is not met (QuorumNotReached)
     t.contract.execute_proposal(&id, &10_000);
+}
+
+#[test]
+fn test_incremental_vote_result_caching_and_delegation() {
+    let t = setup();
+
+    // Create a proposal
+    let id = create_fee_proposal(&t);
+
+    // Initial cached totals should be 0
+    let initial_p = t.contract.get_proposal(&id);
+    assert_eq!(initial_p.votes_for, 0);
+    assert_eq!(initial_p.votes_against, 0);
+
+    // Delegate voter_a to voter_b
+    t.contract.delegate_votes(&t.voter_a, &t.voter_b);
+
+    // voter_b votes for the proposal.
+    // voter_b has 2,000 own weight + 1,000 delegated from voter_a = 3,000 weight.
+    t.contract.cast_vote(&t.voter_b, &id, &true);
+
+    // Cached votes_for should be 3,000 now
+    let p_after_vote1 = t.contract.get_proposal(&id);
+    assert_eq!(p_after_vote1.votes_for, 3_000);
+    assert_eq!(p_after_vote1.votes_against, 0);
+
+    // proposer (500 weight) votes against.
+    t.contract.cast_vote(&t.proposer, &id, &false);
+
+    // Cached totals should update incrementally to votes_for = 3,000 and votes_against = 500
+    let p_final = t.contract.get_proposal(&id);
+    assert_eq!(p_final.votes_for, 3_000);
+    assert_eq!(p_final.votes_against, 500);
 }
 
 // ── Issue #68: veto_proposal ──────────────────────────────────────────────────

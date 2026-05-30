@@ -105,7 +105,6 @@ pub fn update_config(
 pub fn set_price_oracle(env: &Env, caller: &Address, oracle: Address) -> Result<(), ConfigError> {
     let admin = crate::storage::get_admin(env).ok_or(ConfigError::Unauthorized)?;
     let mut config = crate::storage::get_config(env).ok_or(ConfigError::Unauthorized)?;
-    caller.require_auth();
     if caller != &admin {
         return Err(ConfigError::Unauthorized);
     }
