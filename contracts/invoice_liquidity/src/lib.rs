@@ -12,6 +12,7 @@ pub mod config;
 pub mod errors;
 pub mod events;
 pub mod invoice;
+pub mod multisig;
 pub mod nft;
 pub mod rate_logic;
 pub mod storage;
@@ -37,6 +38,8 @@ mod tests_lifecycle_integration;
 mod tests_invoice_nft;
 #[cfg(test)]
 mod tests_lp_whitelist;
+#[cfg(test)]
+mod tests_multisig_admin;
 
 pub use crate::invoice::{
     AppealRecord, Invoice, InvoiceParams, InvoiceStatus, LpFundRequest, ReputationProfile,
@@ -444,6 +447,246 @@ impl InvoiceLiquidityContract {
 
         Ok(())
     }
+
+    // ============================================================
+    // Multi-sig Admin Functions (Issue #124)
+    // ============================================================
+
+    /// Initialize multi-signature admin functionality.
+    ///
+    /// Enables multi-sig approval for sensitive operations. Once enabled,
+    /// certain admin actions require approval from multiple authorized signers.
+    ///
+    /// # Arguments
+    /// - `env`: The Soroban environment
+    /// - `signers`: Vec of addresses authorized to participate in multi-sig
+    /// - `threshold`: Number of signatures required to execute (must be <= signers.len())
+    ///
+    /// # Returns
+    /// - `Ok(())` if multi-sig admin was successfully initialized
+    /// - `Err(ContractError::InvalidMultisigConfig)` if threshold > signers.len()
+    /// - `Err(ContractError::Unauthorized)` if called by non-admin
+    ///
+    /// Access: Admin only
+    pub fn initialize_multisig_admin(
+        env: Env,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), ContractError> {
+        require_admin(&env)?;
+
+        // Validate configuration
+        if threshold as usize > signers.len() || threshold == 0 {
+            return Err(ContractError::InvalidMultisigConfig);
+        }
+
+        let admin = multisig::MultisigAdmin { signers, threshold };
+        storage::set_multisig_admin(&env, &admin);
+        Ok(())
+    }
+
+    /// Propose a pause action.
+    ///
+    /// Creates a new proposal to pause the contract. Must be called by
+    /// an authorized signer if multi-sig is enabled.
+    ///
+    /// # Arguments
+    /// - `env`: The Soroban environment
+    /// - `proposer`: The signer proposing the pause
+    ///
+    /// # Returns
+    /// - `Ok(proposal_id)` if proposal was created successfully
+    /// - `Err(ContractError::NotAuthorizedSigner)` if proposer is not authorized
+    ///
+    /// Access: Multi-sig authorized signer
+    pub fn propose_pause(env: Env, proposer: Address) -> Result<u64, ContractError> {
+        proposer.require_auth();
+
+        let admin = storage::get_multisig_admin(&env)
+            .ok_or(ContractError::NotAuthorizedSigner)?;
+
+        if !multisig::is_signer(&env, &admin.signers, &proposer) {
+            return Err(ContractError::NotAuthorizedSigner);
+        }
+
+        let proposal_id = storage::get_next_proposal_id(&env);
+        let proposal = multisig::MultisigProposal {
+            id: proposal_id,
+            action: multisig::AdminAction::Pause,
+            signers_approved: Vec::new(&env),
+            state: multisig::ProposalState::Pending,
+            expires_at: env.ledger().sequence() + multisig::MULTISIG_WINDOW_LEDGERS,
+        };
+
+        storage::save_multisig_proposal(&env, &proposal);
+        storage::increment_proposal_id(&env);
+
+        Ok(proposal_id)
+    }
+
+    /// Propose an unpause action.
+    ///
+    /// Creates a new proposal to unpause the contract. Must be called by
+    /// an authorized signer if multi-sig is enabled.
+    ///
+    /// # Arguments
+    /// - `env`: The Soroban environment
+    /// - `proposer`: The signer proposing the unpause
+    ///
+    /// # Returns
+    /// - `Ok(proposal_id)` if proposal was created successfully
+    /// - `Err(ContractError::NotAuthorizedSigner)` if proposer is not authorized
+    ///
+    /// Access: Multi-sig authorized signer
+    pub fn propose_unpause(env: Env, proposer: Address) -> Result<u64, ContractError> {
+        proposer.require_auth();
+
+        let admin = storage::get_multisig_admin(&env)
+            .ok_or(ContractError::NotAuthorizedSigner)?;
+
+        if !multisig::is_signer(&env, &admin.signers, &proposer) {
+            return Err(ContractError::NotAuthorizedSigner);
+        }
+
+        let proposal_id = storage::get_next_proposal_id(&env);
+        let proposal = multisig::MultisigProposal {
+            id: proposal_id,
+            action: multisig::AdminAction::Unpause,
+            signers_approved: Vec::new(&env),
+            state: multisig::ProposalState::Pending,
+            expires_at: env.ledger().sequence() + multisig::MULTISIG_WINDOW_LEDGERS,
+        };
+
+        storage::save_multisig_proposal(&env, &proposal);
+        storage::increment_proposal_id(&env);
+
+        Ok(proposal_id)
+    }
+
+    /// Sign a proposal.
+    ///
+    /// Adds the signer's signature to a proposal. Once the signature threshold
+    /// is reached, the proposal becomes executable.
+    ///
+    /// # Arguments
+    /// - `env`: The Soroban environment
+    /// - `signer`: The address signing the proposal
+    /// - `proposal_id`: The ID of the proposal to sign
+    ///
+    /// # Returns
+    /// - `Ok(())` if signature was added successfully
+    /// - `Err(ContractError::NotAuthorizedSigner)` if signer is not authorized
+    /// - `Err(ContractError::AlreadySigned)` if signer has already signed this proposal
+    /// - `Err(ContractError::ProposalNotFound)` if proposal doesn't exist
+    ///
+    /// Access: Multi-sig authorized signer
+    pub fn sign_proposal(
+        env: Env,
+        signer: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        signer.require_auth();
+
+        let admin = storage::get_multisig_admin(&env)
+            .ok_or(ContractError::NotAuthorizedSigner)?;
+
+        if !multisig::is_signer(&env, &admin.signers, &signer) {
+            return Err(ContractError::NotAuthorizedSigner);
+        }
+
+        let mut proposal = storage::get_multisig_proposal(&env, proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        if multisig::has_signed(&proposal, &signer) {
+            return Err(ContractError::AlreadySigned);
+        }
+
+        proposal.signers_approved.push_back(signer);
+        storage::save_multisig_proposal(&env, &proposal);
+
+        Ok(())
+    }
+
+    /// Execute a proposal.
+    ///
+    /// Executes a proposal that has reached the signature threshold.
+    /// The action (pause/unpause) is immediately applied.
+    ///
+    /// # Arguments
+    /// - `env`: The Soroban environment
+    /// - `executor`: The address executing the proposal (must be a signer)
+    /// - `proposal_id`: The ID of the proposal to execute
+    ///
+    /// # Returns
+    /// - `Ok(())` if proposal was executed successfully
+    /// - `Err(ContractError::ThresholdNotReached)` if not enough signatures
+    /// - `Err(ContractError::ProposalNotFound)` if proposal doesn't exist
+    /// - `Err(ContractError::ProposalAlreadyExecuted)` if already executed
+    /// - `Err(ContractError::ProposalExpired)` if outside execution window
+    ///
+    /// Access: Multi-sig authorized signer
+    pub fn execute_proposal(
+        env: Env,
+        executor: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        executor.require_auth();
+
+        let admin = storage::get_multisig_admin(&env)
+            .ok_or(ContractError::NotAuthorizedSigner)?;
+
+        if !multisig::is_signer(&env, &admin.signers, &executor) {
+            return Err(ContractError::NotAuthorizedSigner);
+        }
+
+        let mut proposal = storage::get_multisig_proposal(&env, proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        // Check if already executed
+        if proposal.state == multisig::ProposalState::Executed {
+            return Err(ContractError::ProposalAlreadyExecuted);
+        }
+
+        // Check if expired
+        if multisig::is_expired(&env, &proposal) {
+            proposal.state = multisig::ProposalState::Expired;
+            storage::save_multisig_proposal(&env, &proposal);
+            return Err(ContractError::ProposalExpired);
+        }
+
+        // Check threshold
+        if !multisig::threshold_reached(&proposal, admin.threshold) {
+            return Err(ContractError::ThresholdNotReached);
+        }
+
+        // Mark as executed and execute action
+        proposal.state = multisig::ProposalState::Executed;
+        storage::save_multisig_proposal(&env, &proposal);
+
+        match proposal.action {
+            multisig::AdminAction::Pause => {
+                set_paused(&env, true);
+                env.events().publish_event(&ContractPaused {
+                    timestamp: env.ledger().timestamp(),
+                });
+            }
+            multisig::AdminAction::Unpause => {
+                set_paused(&env, false);
+                env.events().publish_event(&ContractUnpaused {
+                    timestamp: env.ledger().timestamp(),
+                });
+            }
+            _ => {
+                // Other actions not yet implemented in this simplified version
+            }
+        }
+
+        Ok(())
+    }
+
+    // ============================================================
+    // END Multi-sig Admin Functions
+    // ============================================================
 
     // ------------------------------------------------------------
     // get_contract_stats (read-only view)

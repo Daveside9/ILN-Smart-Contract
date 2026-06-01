@@ -65,4 +65,19 @@ pub enum ContractError {
     LPNotWhitelisted = 38,
     /// Whitelist exceeds maximum size (10 addresses).
     WhitelistTooLarge = 39,
+    // ── Issue #124: Multi-sig Admin ────────────────────────────
+    /// Caller is not an authorized multisig signer.
+    NotAuthorizedSigner = 40,
+    /// Proposal does not exist.
+    ProposalNotFound = 41,
+    /// Signer has already approved this proposal.
+    AlreadySigned = 42,
+    /// Proposal has expired and cannot be executed.
+    ProposalExpired = 43,
+    /// Threshold of signatures has not been reached.
+    ThresholdNotReached = 44,
+    /// Proposal has already been executed.
+    ProposalAlreadyExecuted = 45,
+    /// Invalid multisig configuration (e.g., threshold > signer count).
+    InvalidMultisigConfig = 46,
 }

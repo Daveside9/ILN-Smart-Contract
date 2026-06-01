@@ -16,6 +16,10 @@ pub enum DataKey {
     /// Minimum payer reputation required to fund an invoice (Issue #28). Default 0.
     MinPayerReputation,
     NextInvoiceId,
+    /// Issue #124: Multi-sig admin configuration
+    MultisigAdmin,
+    /// Issue #124: Proposal counter for unique IDs
+    MultisigProposalCounter,
 
     // Persistent Storage
     Invoice(u64),
@@ -52,6 +56,8 @@ pub enum DataKey {
     InvoiceNft(u64),
     /// Invoice NFT owner tracking (Issue #119)
     InvoiceNftOwner(u64),
+    /// Issue #124: Multi-sig proposals by ID
+    MultisigProposal(u64),
 }
 
 // ----------------------------------------------------------------
@@ -340,3 +346,42 @@ pub fn add_volume(
             .set(&DataKey::TotalVolumeXlm, &(current + amount));
     }
 }
+
+// ----------------------------------------------------------------
+// Multi-sig Admin Helpers (Issue #124)
+// ----------------------------------------------------------------
+
+pub fn get_multisig_admin(env: &Env) -> Option<crate::multisig::MultisigAdmin> {
+    env.storage().instance().get(&DataKey::MultisigAdmin)
+}
+
+pub fn set_multisig_admin(env: &Env, admin: &crate::multisig::MultisigAdmin) {
+    env.storage().instance().set(&DataKey::MultisigAdmin, admin);
+}
+
+pub fn get_multisig_proposal(env: &Env, proposal_id: u64) -> Option<crate::multisig::MultisigProposal> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MultisigProposal(proposal_id))
+}
+
+pub fn save_multisig_proposal(env: &Env, proposal: &crate::multisig::MultisigProposal) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::MultisigProposal(proposal.id), proposal);
+}
+
+pub fn get_next_proposal_id(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MultisigProposalCounter)
+        .unwrap_or(1)
+}
+
+pub fn increment_proposal_id(env: &Env) {
+    let next_id = get_next_proposal_id(env) + 1;
+    env.storage()
+        .instance()
+        .set(&DataKey::MultisigProposalCounter, &next_id);
+}
+
