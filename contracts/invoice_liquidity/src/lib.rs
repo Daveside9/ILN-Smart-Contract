@@ -40,9 +40,11 @@ mod tests_invoice_nft;
 mod tests_lp_whitelist;
 #[cfg(test)]
 mod tests_multisig_admin;
+#[cfg(test)]
+mod tests_lp_portfolio_stats;
 
 pub use crate::invoice::{
-    AppealRecord, Invoice, InvoiceParams, InvoiceStatus, LpFundRequest, ReputationProfile,
+    AppealRecord, Invoice, InvoiceParams, InvoiceStatus, LpFundRequest, LPStats, ReputationProfile,
     ReputationScore, TopPayerEntry,
 };
 pub use crate::nft::InvoiceNftMetadata;
@@ -74,6 +76,7 @@ use invoice::{
     ContractStats, DisputeRecord, StorageKey, increment_invoices_submitted, increment_invoices_paid,
     increment_invoices_defaulted,
 };
+use storage::{get_lp_portfolio_stats as storage_get_lp_portfolio_stats, save_lp_portfolio_stats};
 // 30-day window in seconds for a payer to file an appeal after a default.
 const APPEAL_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60;
 
@@ -694,6 +697,27 @@ impl InvoiceLiquidityContract {
     /// Access: Anyone
     pub fn get_contract_stats(env: Env) -> ContractStats {
         get_contract_stats(&env)
+    }
+
+    // ------------------------------------------------------------
+    // get_lp_portfolio_stats (read-only view) — Issue #116
+    // ------------------------------------------------------------
+    /// Return the LP yield analytics snapshot for `lp`.
+    ///
+    /// All fields are maintained incrementally in persistent storage and are
+    /// O(1) to read, making this ideal for LP dashboards that need to avoid
+    /// paginating through every invoice.
+    ///
+    /// # Fields
+    /// - `total_funded`   — cumulative capital deployed
+    /// - `total_earned`   — cumulative yield received
+    /// - `active_positions` — invoices currently in `Funded` state
+    /// - `total_positions`  — all-time funded invoice count
+    /// - `avg_yield_bps`  — running average discount rate in basis points
+    ///
+    /// Access: Anyone
+    pub fn get_lp_portfolio_stats(env: Env, lp: Address) -> LPStats {
+        storage_get_lp_portfolio_stats(&env, &lp)
     }
 
     // ------------------------------------------------------------
@@ -1405,6 +1429,45 @@ impl InvoiceLiquidityContract {
         // Update LP index
         add_invoice_to_lp(&env, &funder, invoice_id);
 
+        // ── Issue #116: Maintain LP portfolio stats ───────────────
+        // We track a new position only on the first fund for this LP on this
+        // invoice (guarded by the `!found` flag set above in the funders loop).
+        // partial top-ups by the same LP are already merged into the funders
+        // entry — adding a position again would double-count.
+        {
+            let mut lp_stats = storage_get_lp_portfolio_stats(&env, &funder);
+            if !found {
+                // New position: accumulate capital and update the running
+                // average yield (simple mean of discount_rate_bps values).
+                lp_stats.total_funded = lp_stats
+                    .total_funded
+                    .checked_add(fund_amount)
+                    .unwrap_or(lp_stats.total_funded);
+                let old_total = lp_stats.total_positions as u64;
+                lp_stats.total_positions = lp_stats.total_positions.saturating_add(1);
+                let new_total = lp_stats.total_positions as u64;
+                // Weighted recalculation: avg = (old_avg * old_n + rate) / new_n
+                lp_stats.avg_yield_bps = if new_total > 0 {
+                    (((lp_stats.avg_yield_bps as u64) * old_total
+                        + invoice.discount_rate as u64)
+                        / new_total) as u32
+                } else {
+                    invoice.discount_rate
+                };
+            } else {
+                // Top-up on an existing position — only grow total_funded.
+                lp_stats.total_funded = lp_stats
+                    .total_funded
+                    .checked_add(fund_amount)
+                    .unwrap_or(lp_stats.total_funded);
+            }
+            // A position becomes "active" when the invoice is fully Funded.
+            if invoice.status == InvoiceStatus::Funded {
+                lp_stats.active_positions = lp_stats.active_positions.saturating_add(1);
+            }
+            save_lp_portfolio_stats(&env, &funder, &lp_stats);
+        }
+
         // Increment total funded counter if fully funded
         if invoice.status == InvoiceStatus::Funded {
             increment_total_funded(&env);
@@ -1780,6 +1843,21 @@ impl InvoiceLiquidityContract {
             if funder_share > 0 {
                 token.transfer(&contract_address, &funder_addr, &funder_share);
             }
+        }
+
+        // ── Issue #116: Update each LP's portfolio stats on settlement ────
+        for i in 0..funders.len() {
+            let (funder_addr, fund_amt) = funders.get(i).unwrap();
+            let funder_share =
+                distribute_amount.checked_mul(fund_amt).unwrap_or(0) / invoice.amount;
+            let earned = funder_share.saturating_sub(fund_amt);
+            let mut lp_stats = storage_get_lp_portfolio_stats(&env, &funder_addr);
+            lp_stats.total_earned = lp_stats
+                .total_earned
+                .checked_add(earned)
+                .unwrap_or(lp_stats.total_earned);
+            lp_stats.active_positions = lp_stats.active_positions.saturating_sub(1);
+            save_lp_portfolio_stats(&env, &funder_addr, &lp_stats);
         }
 
         // ---- Update invoice ----

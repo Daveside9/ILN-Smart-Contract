@@ -106,6 +106,26 @@ pub struct ContractStats {
     pub total_volume_usd_normalized: i128,
 }
 
+/// Per-LP analytics snapshot (Issue #116).
+///
+/// Updated incrementally on every `fund_invoice` and `mark_paid` call so the
+/// dashboard can read a single storage slot instead of iterating all invoices.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LPStats {
+    /// Cumulative token-amount sent as capital across all funded invoices.
+    pub total_funded: i128,
+    /// Cumulative yield earned (payout received minus capital deployed).
+    pub total_earned: i128,
+    /// Number of invoices currently in `Funded` state for this LP.
+    pub active_positions: u32,
+    /// Total number of invoice positions this LP has ever funded.
+    pub total_positions: u32,
+    /// Simple average discount rate in basis points across all positions
+    /// (sum of discount_rate_bps / total_positions), or 0 when no positions.
+    pub avg_yield_bps: u32,
+}
+
 // ----------------------------------------------------------------
 // Issue #36: Appeal record stored per invoice
 // ----------------------------------------------------------------

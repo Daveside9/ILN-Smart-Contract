@@ -58,6 +58,8 @@ pub enum DataKey {
     InvoiceNftOwner(u64),
     /// Issue #124: Multi-sig proposals by ID
     MultisigProposal(u64),
+    /// Issue #116: Per-LP portfolio analytics snapshot
+    LPPortfolioStats(Address),
 }
 
 // ----------------------------------------------------------------
@@ -385,3 +387,27 @@ pub fn increment_proposal_id(env: &Env) {
         .set(&DataKey::MultisigProposalCounter, &next_id);
 }
 
+// ----------------------------------------------------------------
+// LP Portfolio Stats Helpers (Issue #116)
+// ----------------------------------------------------------------
+
+pub fn get_lp_portfolio_stats(env: &Env, lp: &Address) -> crate::invoice::LPStats {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LPPortfolioStats(lp.clone()))
+        .unwrap_or(crate::invoice::LPStats {
+            total_funded: 0,
+            total_earned: 0,
+            active_positions: 0,
+            total_positions: 0,
+            avg_yield_bps: 0,
+        })
+}
+
+pub fn save_lp_portfolio_stats(env: &Env, lp: &Address, stats: &crate::invoice::LPStats) {
+    let key = DataKey::LPPortfolioStats(lp.clone());
+    env.storage().persistent().set(&key, stats);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 1_000_000, 2_000_000);
+}
