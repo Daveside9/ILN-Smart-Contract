@@ -46,6 +46,10 @@ pub struct Invoice {
     pub auction_min_rate: Option<u32>,   // minimum rate in basis points
     pub auction_rate_decay_per_hour: Option<u32>, // decay in basis points per hour
     pub auction_started_at: Option<u32>, // timestamp when auction was started
+    /// Issue #122: Optional whitelist of LP addresses allowed to fund this invoice.
+    /// If empty/None, invoice is public. If Some, only whitelisted LPs can fund.
+    /// Capped at 10 addresses to limit storage.
+    pub allowed_lps: Option<soroban_sdk::Vec<Address>>,
 }
 
 #[contracttype]
@@ -58,6 +62,8 @@ pub struct InvoiceParams {
     pub discount_rate: u32,
     pub token: Address,
     pub referral_code: Option<BytesN<32>>,
+    /// Issue #122: Optional whitelist of allowed LPs for this invoice
+    pub allowed_lps: Option<soroban_sdk::Vec<Address>>,
 }
 
 #[contracttype]
@@ -104,6 +110,26 @@ pub struct ContractStats {
     pub total_volume_xlm: i128,
     pub token_volumes: soroban_sdk::Vec<(Address, i128)>,
     pub total_volume_usd_normalized: i128,
+}
+
+/// Per-LP analytics snapshot (Issue #116).
+///
+/// Updated incrementally on every `fund_invoice` and `mark_paid` call so the
+/// dashboard can read a single storage slot instead of iterating all invoices.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LPStats {
+    /// Cumulative token-amount sent as capital across all funded invoices.
+    pub total_funded: i128,
+    /// Cumulative yield earned (payout received minus capital deployed).
+    pub total_earned: i128,
+    /// Number of invoices currently in `Funded` state for this LP.
+    pub active_positions: u32,
+    /// Total number of invoice positions this LP has ever funded.
+    pub total_positions: u32,
+    /// Simple average discount rate in basis points across all positions
+    /// (sum of discount_rate_bps / total_positions), or 0 when no positions.
+    pub avg_yield_bps: u32,
 }
 
 // ----------------------------------------------------------------
